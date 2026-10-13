@@ -17,7 +17,7 @@ export function dust(x: number, y: number, opts: BurstOptions = {}) {
 
 /** A row of bursts along a line (e.g. the bottom edge of something that just came down), with a blast in the middle. */
 export function dustLine(x0: number, x1: number, y: number, power = 1) {
-  const n = Math.max(2, Math.round((x1 - x0) / 200));
+  const n = Math.max(3, Math.round((x1 - x0) / 200));
   for (let i = 0; i < n; i++) dust(x0 + ((x1 - x0) * (i + 0.5)) / n, y, { power, chunks: Math.round(4 + power * 4), lean: (i / (n - 1 || 1) - 0.5) * 1.2 });
   dust((x0 + x1) / 2, y, { power: power * 1.3, chunks: 0, blast: true });
 }

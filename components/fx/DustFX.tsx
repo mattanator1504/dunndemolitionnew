@@ -6,7 +6,8 @@ import type { BurstOptions } from './dust';
 // One fixed, click-through canvas for every dust burst on the site: concrete-dust clouds
 // that billow, hang and fade (a light and a dark tone, so they read on ink and on paper),
 // chunks of debris thrown out under gravity, and for blasts a shockwave ring and a flash.
-// It only animates while particles are alive, and stays empty under reduced motion.
+// It sits under the sticky header, only animates while particles are alive, and stays
+// empty under reduced motion.
 // kind: 0 dust, 1 chunk, 2 shockwave ring, 3 flash
 type P = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; spin: number; a: number; kind: 0 | 1 | 2 | 3; tone: number };
 
@@ -64,9 +65,11 @@ export function DustFX() {
     const ps: P[] = [];
     let raf = 0;
     let last = 0;
+    let lastScroll = scrollY;
 
     const burst = (x: number, y: number, o: BurstOptions = {}) => {
-      const power = o.power ?? 1;
+      // Phones get a bigger hit: the screen is small, so the same burst reads as a puff.
+      const power = (o.power ?? 1) * (w < 768 ? 1.4 : 1);
       const lean = o.lean ?? 0;
       const nDust = Math.round(18 + power * 30);
       const nChunks = o.chunks ?? Math.round(power * 12);
@@ -78,7 +81,7 @@ export function DustFX() {
       for (let i = 0; i < nDust && ps.length < MAX; i++) {
         const ang = -Math.PI / 2 + lean * 0.6 + (Math.random() - 0.5) * Math.PI * (o.blast ? 2 : 1.4);
         const sp = (50 + Math.random() * 220) * power;
-        const max = 1.4 + Math.random() * 1.6 * Math.min(2, power);
+        const max = 1 + Math.random() * 1.1 * Math.min(1.6, power);
         ps.push({ x: x + (Math.random() - 0.5) * 70 * power, y: y + (Math.random() - 0.5) * 16, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6, life: max, max, size: (14 + Math.random() * 26) * (0.6 + power * 0.55), spin: 0, a: 0, kind: 0, tone: Math.random() });
       }
       for (let i = 0; i < nChunks && ps.length < MAX; i++) {
@@ -89,19 +92,26 @@ export function DustFX() {
       }
       if (!raf) {
         last = performance.now();
+        lastScroll = scrollY;
         raf = requestAnimationFrame(tick);
       }
     };
 
     const tick = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000);
+      // rAF timestamps can trail the performance.now() a burst started from: never step back.
+      const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
       last = now;
+      const scrolled = scrollY - lastScroll;
+      lastScroll = scrollY;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       for (let i = ps.length - 1; i >= 0; i--) {
         const p = ps[i];
-        p.life -= dt;
-        if (p.life <= 0 || p.y > h + 60) {
+        // Dust is anchored to the page, so it scrolls away with whatever it came off,
+        // and it settles three times as fast while you're scrolling.
+        p.y -= scrolled;
+        p.life -= scrolled ? dt * 3 : dt;
+        if (p.life <= 0 || p.y > h + 60 || p.y < -160) {
           ps.splice(i, 1);
           continue;
         }
@@ -156,5 +166,5 @@ export function DustFX() {
     };
   }, []);
 
-  return <canvas ref={ref} aria-hidden="true" className="pointer-events-none fixed inset-0 z-[65] h-full w-full" />;
+  return <canvas ref={ref} aria-hidden="true" className="pointer-events-none fixed inset-0 z-40 h-full w-full" />;
 }

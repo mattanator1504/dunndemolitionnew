@@ -1,5 +1,7 @@
 // Renders build-time images with headless Chromium (run after `next build`):
-// - public/images/hero-wall-poster(-1080).webp: the 3D wall's first frame (the hero poster)
+// - public/images/hero-brick-wall(-1080).webp: the 3D wall's first frame (the hero poster).
+//   /images/* is cached immutable for a year (vercel.json): if the poster ever changes
+//   look, give it a new file name, or returning visitors keep seeing the old one.
 // - public/og/default.png: 1200x630 share image
 // - app/icon.png and app/apple-icon.png
 // Usage: npm run build && node scripts/render-assets.mjs
@@ -39,8 +41,8 @@ try {
   });
   const png = Buffer.from(dataUrl.split(',')[1], 'base64');
   for (const [w, file, q] of [
-    [1920, 'hero-wall-poster.webp', 62],
-    [1080, 'hero-wall-poster-1080.webp', 60],
+    [1920, 'hero-brick-wall.webp', 62],
+    [1080, 'hero-brick-wall-1080.webp', 60],
   ]) {
     await sharp(png).resize({ width: w }).webp({ quality: q, effort: 6 }).toFile(path.join(root, 'public/images', file));
     const { size } = await fs.stat(path.join(root, 'public/images', file));
@@ -49,7 +51,7 @@ try {
 
   // 2. OG image and icons, drawn in HTML with the site's fonts.
   const og = await browser.newPage({ viewport: { width: 1200, height: 630 } });
-  const posterB64 = (await fs.readFile(path.join(root, 'public/images/hero-wall-poster.webp'))).toString('base64');
+  const posterB64 = (await fs.readFile(path.join(root, 'public/images/hero-brick-wall.webp'))).toString('base64');
   await og.setContent(`<!doctype html><html><head>
     <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,900&family=JetBrains+Mono:wght@500&display=block" rel="stylesheet">
     <style>
@@ -81,7 +83,7 @@ try {
   await sharp(Buffer.from(iconSvg)).resize(180).png().toFile(path.join(root, 'app/apple-icon.png'));
   console.log('icons done');
   // Keep an existing static build in step with the new files.
-  for (const f of ['public/images/hero-wall-poster.webp', 'public/images/hero-wall-poster-1080.webp', 'public/og/default.png']) {
+  for (const f of ['public/images/hero-brick-wall.webp', 'public/images/hero-brick-wall-1080.webp', 'public/og/default.png']) {
     const dest = path.join(root, 'out', f.replace(/^public\//, ''));
     await fs.mkdir(path.dirname(dest), { recursive: true }).catch(() => {});
     await fs.copyFile(path.join(root, f), dest).catch(() => {});

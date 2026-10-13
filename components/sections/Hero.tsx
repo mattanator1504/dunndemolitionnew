@@ -17,10 +17,10 @@ export function Hero() {
       <div className="hero-stage relative isolate flex min-h-[calc(100svh-4.5rem)] flex-col overflow-hidden">
         <div className="absolute inset-0 -z-10" aria-hidden="true">
           <picture>
-            <source media="(max-width: 767px)" srcSet="/images/hero-wall-poster-1080.webp" />
+            <source media="(max-width: 767px)" srcSet="/images/hero-brick-wall-1080.webp" />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/images/hero-wall-poster.webp"
+              src="/images/hero-brick-wall.webp"
               alt=""
               width={1920}
               height={1080}
