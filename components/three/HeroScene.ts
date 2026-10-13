@@ -322,14 +322,14 @@ export function createHeroScene(canvas: HTMLCanvasElement, opts: { poster?: bool
       const j = dustSeed[k * 6];
       const age = (t - t0[j]) * SPEED;
       const o = k * 4;
-      if (age <= 0 || age > 1.2) {
+      if (age <= 0 || age > 1.44) {
         dustCol[o + 3] = 0;
         continue;
       }
       dustPos[k * 3] = bx[j] + dustSeed[k * 6 + 1] + dustSeed[k * 6 + 3] * age;
       dustPos[k * 3 + 1] = by[j] + dustSeed[k * 6 + 2] + dustSeed[k * 6 + 4] * age - 0.4 * age * age;
       dustPos[k * 3 + 2] = 0.6 + age * 1.4;
-      const a = smoothstep(0, 0.12, age) * (1 - smoothstep(0.25, 1.2, age));
+      const a = smoothstep(0, 0.12, age) * (1 - smoothstep(0.3, 1.44, age));
       dustCol[o] = 0.78;
       dustCol[o + 1] = 0.72;
       dustCol[o + 2] = 0.66;

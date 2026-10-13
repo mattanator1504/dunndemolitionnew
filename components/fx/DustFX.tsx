@@ -81,13 +81,13 @@ export function DustFX() {
       for (let i = 0; i < nDust && ps.length < MAX; i++) {
         const ang = -Math.PI / 2 + lean * 0.6 + (Math.random() - 0.5) * Math.PI * (o.blast ? 2 : 1.4);
         const sp = (50 + Math.random() * 220) * power;
-        const max = 0.5 + Math.random() * 0.5 * Math.min(1.4, power); // a hit, not a fog: gone in about a second
+        const max = 0.6 + Math.random() * 0.6 * Math.min(1.4, power); // a hit, not a fog: gone in a second or so
         ps.push({ x: x + (Math.random() - 0.5) * 70 * power, y: y + (Math.random() - 0.5) * 16, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6, life: max, max, size: (14 + Math.random() * 26) * (0.6 + power * 0.55), spin: 0, a: 0, kind: 0, tone: Math.random() });
       }
       for (let i = 0; i < nChunks && ps.length < MAX; i++) {
         const ang = -Math.PI / 2 + lean * 0.7 + (Math.random() - 0.5) * Math.PI * 1.1;
         const sp = (160 + Math.random() * 380) * Math.sqrt(power);
-        const max = 0.7 + Math.random() * 0.4;
+        const max = 0.84 + Math.random() * 0.48;
         ps.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: max, max, size: 2 + Math.random() * 5 * Math.min(1.5, power), spin: (Math.random() - 0.5) * 18, a: Math.random() * 6, kind: 1, tone: Math.random() });
       }
       if (!raf) {
@@ -108,9 +108,9 @@ export function DustFX() {
       for (let i = ps.length - 1; i >= 0; i--) {
         const p = ps[i];
         // Dust is anchored to the page, so it scrolls away with whatever it came off,
-        // and it clears six times as fast while you're scrolling.
+        // and it clears five times as fast while you're scrolling.
         p.y -= scrolled;
-        p.life -= scrolled ? dt * 6 : dt;
+        p.life -= scrolled ? dt * 5 : dt;
         if (p.life <= 0 || p.y > h + 60 || p.y < -160) {
           ps.splice(i, 1);
           continue;
