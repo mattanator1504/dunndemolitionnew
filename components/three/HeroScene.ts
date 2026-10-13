@@ -1,15 +1,18 @@
-// The home page's 3D: a three-story concrete-frame building that comes down as you
-// scroll through the pinned hero.
-// The hero's scroll progress (0..1) runs three beats:
-//   0.04-0.30  the excavator takes the top front corner off
-//   0.30-0.80  the floors pancake, columns topple, the infill crumbles into a heap
-//   0.80-1.00  the dust settles and the camera drops to the rubble
-// One canvas inside the hero's scene box, one WebGL context (same framing as the poster).
+// The home page's 3D: a full-bleed brick wall that the hero sits on. Scrolling through
+// the pinned hero knocks it out, starting from one strike point right of center, and the
+// page behind shows through the hole as it spreads to the edges.
+// The hero's scroll progress (0..1):
+//   0.00-0.06  the wall stands
+//   0.04-0.70  bricks loosen just ahead of the break, then let go (nearest the strike first),
+//              blow out toward the camera, tumble and drop out of frame; mortar crumbles to dust
+//   0.70-1.00  the last edge bricks fall away; at 1 the canvas is empty
+// Everything is a function of progress, so scrolling back up rebuilds the wall.
+// The wall is laid out like CSS object-fit: cover over a 1920x1080 reference frame, so the
+// static poster (rendered from this scene at that size) lines up with the live first frame.
 // Plain three.js to stay inside the 3D budget in technical-seo.md §4.
 // Loaded only through HeroSceneMount, never in the initial bundle.
 import {
   ACESFilmicToneMapping,
-  AdditiveBlending,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -22,134 +25,95 @@ import {
   InstancedMesh,
   MathUtils,
   Matrix4,
-  Mesh,
   MeshStandardMaterial,
+  NormalBlending,
   PerspectiveCamera,
-  PointLight,
   Points,
   PointsMaterial,
   Quaternion,
+  RepeatWrapping,
   SRGBColorSpace,
   Scene,
   Vector3,
   WebGLRenderer,
 } from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
-// Building: a 3 x 2 bay concrete frame, three floors, block infill on the two faces
-// toward the camera (front +z, right +x). Ground (top of the foundation) is y = 0.
-const BAY = 3.4;
-const NX = 3;
-const NZ = 2;
-const FLOORS = 3;
-const FH = 3; // floor-to-floor
-const SLAB = 0.32;
-const COL = 0.44;
-const FOUND = 0.4;
-const FOUND_PAD = 1.2; // foundation reaches this far past the frame on every side
-const W = NX * BAY;
-const D = NZ * BAY;
-const TOP = FLOORS * FH;
-const BLOCK_D = 0.3;
-const BLOCK_ROWS = 6;
-const BLOCK_COLS = 3;
+/** The reference frame the poster is rendered at. */
+export const POSTER_FRAME = { width: 1920, height: 1080 };
+const COURSES = 18; // brick courses visible across the reference frame's height
 
-const YAW = 0.55; // camera from the front-right, so the knocked corner faces the viewer
-const PITCH = 0.12;
-const FOV = 32;
-const FRAME_MARGIN = 1.12; // the poster is rendered with the same margin
-const LOOK_Y = (TOP - FOUND) / 2;
+// World units: one course (brick + bed joint) is 1 high. US modular proportions:
+// a 3-course module is as tall as a brick-and-joint is long.
+const COURSE = 1;
+const MODULE = 3;
+const JOINT = 0.13;
+const DEPTH = 1.25;
+const FOV = 30;
+const MAX_BRICKS = 1200;
+const DUST = 520;
 
-// Framing: project the site's eight corners through the resting camera and find the
-// distance that fits them inside the margin. Perspective (the near corner, the downward
-// view) makes a flat width/height estimate crop the poster, so it's measured instead.
-const SITE_CORNERS: Vector3[] = [];
-for (const x of [-1, 1]) for (const y of [-FOUND, TOP]) for (const z of [-1, 1]) SITE_CORNERS.push(new Vector3(x * (W / 2 + FOUND_PAD), y, z * (D / 2 + FOUND_PAD)));
+const BRICK_TONES = ['#7a3a29', '#713526', '#84422e', '#6a3224', '#7d4430', '#663328', '#8a4a34', '#5c2f25'].map((c) => new Color(c));
 
-function placeCamera(cam: PerspectiveCamera, yaw: number, pitch: number, dist: number, lookY: number) {
-  cam.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, lookY + Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
-  cam.lookAt(0, lookY, 0);
-  cam.updateMatrixWorld();
-}
-
-const probe = new Vector3();
-function siteExtent(cam: PerspectiveCamera) {
-  let x = 0;
-  let y = 0;
-  for (const c of SITE_CORNERS) {
-    probe.copy(c).project(cam);
-    x = Math.max(x, Math.abs(probe.x));
-    y = Math.max(y, Math.abs(probe.y));
-  }
-  return { x, y };
-}
-
-function fitDistance(aspect: number) {
-  const cam = new PerspectiveCamera(FOV, aspect, 0.1, 500);
-  let lo = 5;
-  let hi = 300;
-  for (let i = 0; i < 28; i++) {
-    const mid = (lo + hi) / 2;
-    placeCamera(cam, YAW, PITCH, mid, LOOK_Y);
-    const ext = siteExtent(cam);
-    if (Math.max(ext.x, ext.y) * FRAME_MARGIN > 1) lo = mid;
-    else hi = mid;
-  }
-  return hi;
-}
-
-// The poster's aspect: the site's projected width over height (square probe, so NDC units match).
-export const FRAME_ASPECT = (() => {
-  const cam = new PerspectiveCamera(FOV, 1, 0.1, 500);
-  placeCamera(cam, YAW, PITCH, fitDistance(1), LOOK_Y);
-  const ext = siteExtent(cam);
-  return ext.x / ext.y;
-})();
-
-const ACCENT = new Color('#E7B008');
-
-type Piece = {
-  base: Vector3;
-  size: Vector3;
-  tilt: Vector3; // resting imperfection, a degree or so
-  t0: number; // when it lets go (hero progress)
-  dur: number;
-  end: Vector3; // where it comes to rest in the heap
-  endRot: Vector3;
-  lift: number; // upward kick when the bucket hits
+export type HeroSceneHandle = {
+  /** Demolition progress, 0..1. */
+  setProgress: (p: number) => void;
+  /** Pointer in -1..1 (screen), for a little parallax. */
+  setPointer: (x: number, y: number) => void;
+  setRunning: (on: boolean) => void;
+  renderOnce: () => void;
+  resize: () => void;
+  dispose: () => void;
 };
 
-// Small seeded RNG so the building (and the poster) is identical on every load.
-function rng(seed: number) {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+// Hash two ints to 0..1, so every brick's behavior is fixed by where it sits in the wall.
+function hash(a: number, b: number, k: number) {
+  let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(k | 0, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
-function concreteTexture(rand: () => number) {
-  const size = 128;
+function smoothstep(a: number, b: number, x: number) {
+  const t = MathUtils.clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+// Fired-clay face: pale base (instance color tints it), speckle, pits and a little
+// soot toward the edges. Also used as the bump map.
+function brickTexture() {
+  const w = 256;
+  const h = 96;
   const c = document.createElement('canvas');
-  c.width = c.height = size;
+  c.width = w;
+  c.height = h;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = '#bdbdb8';
-  ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 2200; i++) {
-    const v = 120 + Math.floor(rand() * 110);
-    ctx.fillStyle = `rgba(${v},${v},${v - 6},${0.25 + rand() * 0.4})`;
-    const r = rand() * 1.6 + 0.3;
-    ctx.fillRect(rand() * size, rand() * size, r, r);
+  let s = 1974;
+  const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  ctx.fillStyle = '#d8d2cb';
+  ctx.fillRect(0, 0, w, h);
+  for (let i = 0; i < 3800; i++) {
+    const v = 150 + Math.floor(r() * 105);
+    ctx.fillStyle = `rgba(${v},${v - 8},${v - 14},${0.3 + r() * 0.4})`;
+    const d = r() * 1.8 + 0.4;
+    ctx.fillRect(r() * w, r() * h, d, d);
   }
-  for (let i = 0; i < 26; i++) {
-    ctx.fillStyle = `rgba(60,60,58,${0.25 + rand() * 0.35})`;
+  for (let i = 0; i < 70; i++) {
+    ctx.fillStyle = `rgba(40,30,26,${0.25 + r() * 0.4})`;
     ctx.beginPath();
-    ctx.arc(rand() * size, rand() * size, rand() * 2.2 + 0.6, 0, Math.PI * 2);
+    ctx.arc(r() * w, r() * h, r() * 1.8 + 0.5, 0, Math.PI * 2);
     ctx.fill();
   }
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, 'rgba(30,22,18,0.22)');
+  g.addColorStop(0.18, 'rgba(30,22,18,0)');
+  g.addColorStop(0.82, 'rgba(30,22,18,0)');
+  g.addColorStop(1, 'rgba(30,22,18,0.28)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
   const tex = new CanvasTexture(c);
   tex.colorSpace = SRGBColorSpace;
+  tex.wrapS = tex.wrapT = RepeatWrapping;
   return tex;
 }
 
@@ -158,408 +122,312 @@ function dustSprite() {
   c.width = c.height = 64;
   const ctx = c.getContext('2d')!;
   const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, 'rgba(255,255,255,0.9)');
-  g.addColorStop(0.4, 'rgba(255,255,255,0.25)');
+  g.addColorStop(0, 'rgba(255,255,255,0.85)');
+  g.addColorStop(0.45, 'rgba(255,255,255,0.28)');
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 64, 64);
   return new CanvasTexture(c);
 }
 
-export type Rect = { left: number; top: number; width: number; height: number };
-
-export type HeroSceneHandle = {
-  /** Where the hero's scene box is on screen (CSS px), or null to draw it full-canvas (poster). */
-  setBox: (r: Rect | null) => void;
-  /** Screen y (CSS px) below which the building must not draw: the next section sliding over it. */
-  setClip: (bottom: number | null) => void;
-  /** Demolition progress, 0..1. */
-  setProgress: (p: number) => void;
-  setPointer: (x: number, y: number) => void;
-  setRunning: (on: boolean) => void;
-  renderOnce: () => void;
-  resize: () => void;
-  dispose: () => void;
-};
-
-function smoothstep(a: number, b: number, x: number) {
-  const t = MathUtils.clamp((x - a) / (b - a), 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
-function addLights(scene: Scene) {
-  scene.add(new HemisphereLight(0xdfe6ee, 0x111111, 0.8));
-  const key = new DirectionalLight(0xfff1dc, 3.2);
-  key.position.set(-10, 7, 6);
-  scene.add(key);
-  const fill = new DirectionalLight(0xdfe6ee, 0.7);
-  fill.position.set(9, 3, 8);
-  scene.add(fill);
-  const rim = new PointLight(ACCENT, 70, 34, 1.6);
-  rim.position.set(9, 8, -6);
-  scene.add(rim);
-}
-
-// Lay out the frame and infill, and give every piece its moment and its resting place.
-function buildPieces(rand: () => number) {
-  const pieces: Piece[] = [];
-  const kinds: ('col' | 'slab' | 'block')[] = [];
-  const impact = new Vector3(W / 2, TOP, D / 2);
-  const diag = Math.hypot(W, TOP, D);
-  const heapC = new Vector3(0.6, 0, 0.5);
-  const heapR = 7.5;
-  const heap = (x: number, z: number) => 2.4 * Math.max(0, 1 - ((x - heapC.x) ** 2 + (z - heapC.z) ** 2) / heapR ** 2);
-
-  const add = (kind: 'col' | 'slab' | 'block', base: Vector3, size: Vector3, normal?: Vector3) => {
-    const h = base.y / TOP;
-    const dImp = base.distanceTo(impact) / diag;
-    const corner = dImp < 0.3 && base.y > TOP - FH - 0.2;
-    let t0: number;
-    let dur: number;
-    let lift = 0;
-    const end = new Vector3();
-    const endRot = new Vector3();
-    const out = new Vector3(base.x - heapC.x, 0, base.z - heapC.z);
-    const outDir = out.clone().normalize();
-
-    if (corner) {
-      // Beat 1: knocked off the top front corner, thrown outward and down.
-      t0 = 0.04 + (dImp / 0.3) * 0.17 + rand() * 0.03;
-      dur = 0.1 + rand() * 0.06;
-      lift = 0.5 + rand() * 0.9;
-      end.set(base.x + outDir.x * (2 + rand() * 2.5), 0, base.z + outDir.z * (2 + rand() * 2.5));
-    } else {
-      // Beat 2: top-down pancake, spreading out from the hit corner.
-      t0 = 0.3 + (1 - h) * 0.17 + dImp * 0.08 + rand() * 0.03 + (kind === 'col' ? 0.02 : 0);
-      dur = 0.11 + 0.08 * h + rand() * 0.03;
-      end.set(base.x + out.x * (0.12 + rand() * 0.3), 0, base.z + out.z * (0.12 + rand() * 0.3));
-    }
-
-    if (kind === 'slab') {
-      const level = Math.round((base.y + SLAB / 2) / FH) - 1;
-      end.x += (rand() - 0.5) * 0.8;
-      end.z += (rand() - 0.5) * 0.8;
-      end.y = SLAB / 2 + 0.1 + level * 0.42 + rand() * 0.15;
-      endRot.set((rand() - 0.5) * 0.6, (rand() - 0.5) * 0.5, (rand() - 0.5) * 0.6);
-    } else if (kind === 'col') {
-      end.x += outDir.x * (0.6 + rand() * 1.2);
-      end.z += outDir.z * (0.6 + rand() * 1.2);
-      end.y = heap(end.x, end.z) * (0.5 + rand() * 0.4) + COL / 2;
-      // Topple: lie down along a random horizontal axis.
-      endRot.set(rand() < 0.5 ? Math.PI / 2 : -Math.PI / 2, rand() * Math.PI, (rand() - 0.5) * 0.3);
-    } else {
-      if (normal) {
-        end.x += normal.x * (0.4 + rand() * 1.8);
-        end.z += normal.z * (0.4 + rand() * 1.8);
-      }
-      end.x += (rand() - 0.5) * 1.8;
-      end.z += (rand() - 0.5) * 1.8;
-      end.y = heap(end.x, end.z) * (0.35 + rand() * 0.65) + 0.2;
-      const q = () => (Math.round(rand() * 4) - 2) * (Math.PI / 2) + (rand() - 0.5) * 0.5;
-      endRot.set(q(), rand() * Math.PI * 2, q());
-    }
-
-    // Everything comes to rest on the site pad, never in the void past its edge.
-    const reach = Math.max(size.x, size.z) / 2;
-    end.x = MathUtils.clamp(end.x, -W / 2 - FOUND_PAD + reach, W / 2 + FOUND_PAD - reach);
-    end.z = MathUtils.clamp(end.z, -D / 2 - FOUND_PAD + reach, D / 2 + FOUND_PAD - reach);
-    if (kind === 'block') end.y = Math.max(end.y, heap(end.x, end.z) * 0.35 + 0.2);
-
-    pieces.push({
-      base,
-      size,
-      tilt: new Vector3((rand() - 0.5) * 0.02, (rand() - 0.5) * 0.02, (rand() - 0.5) * 0.02),
-      t0,
-      dur,
-      end,
-      endRot,
-      lift,
-    });
-    kinds.push(kind);
-  };
-
-  // Columns, one per grid point per floor.
-  for (let f = 0; f < FLOORS; f++) {
-    for (let i = 0; i <= NX; i++) {
-      for (let j = 0; j <= NZ; j++) {
-        add('col', new Vector3(-W / 2 + i * BAY, f * FH + (FH - SLAB) / 2, -D / 2 + j * BAY), new Vector3(COL, FH - SLAB, COL));
-      }
-    }
-  }
-  // Floor and roof slabs, one panel per bay.
-  for (let f = 0; f < FLOORS; f++) {
-    for (let i = 0; i < NX; i++) {
-      for (let j = 0; j < NZ; j++) {
-        add('slab', new Vector3(-W / 2 + (i + 0.5) * BAY, (f + 1) * FH - SLAB / 2, -D / 2 + (j + 0.5) * BAY), new Vector3(BAY - 0.04, SLAB, BAY - 0.04));
-      }
-    }
-  }
-  // Block infill: front face (+z) and right face (+x), with window openings
-  // and a doorway in the middle bay of the ground floor.
-  const cw = BAY - COL;
-  const ch = FH - SLAB;
-  const bw = cw / BLOCK_COLS;
-  const bh = ch / BLOCK_ROWS;
-  const faces = [
-    { bays: NX, along: new Vector3(1, 0, 0), origin: new Vector3(-W / 2, 0, D / 2), normal: new Vector3(0, 0, 1), door: 1 },
-    { bays: NZ, along: new Vector3(0, 0, -1), origin: new Vector3(W / 2, 0, D / 2), normal: new Vector3(1, 0, 0), door: -1 },
-  ];
-  for (const face of faces) {
-    for (let f = 0; f < FLOORS; f++) {
-      for (let b = 0; b < face.bays; b++) {
-        for (let r = 0; r < BLOCK_ROWS; r++) {
-          for (let c = 0; c < BLOCK_COLS; c++) {
-            const door = f === 0 && b === face.door && c === 1 && r <= 4;
-            const opening = c === 1 && r >= 2 && r <= 4;
-            if (door || opening) continue;
-            const s = b * BAY + COL / 2 + (c + 0.5) * bw;
-            const base = face.origin
-              .clone()
-              .addScaledVector(face.along, s)
-              .add(new Vector3(0, f * FH + (r + 0.5) * bh, 0));
-            const size = face.normal.x ? new Vector3(BLOCK_D, bh - 0.04, bw - 0.04) : new Vector3(bw - 0.04, bh - 0.04, BLOCK_D);
-            add('block', base, size, face.normal);
-          }
-        }
-      }
-    }
-  }
-  return { pieces, kinds };
-}
-
-export function createHeroScene(canvas: HTMLCanvasElement, opts: { poster?: boolean; lowPower?: boolean } = {}): HeroSceneHandle {
-  const rand = rng(1974);
-  const renderer = new WebGLRenderer({
-    canvas,
-    antialias: true,
-    alpha: true,
-    powerPreference: 'high-performance',
-    preserveDrawingBuffer: !!opts.poster,
-  });
+export function createHeroScene(canvas: HTMLCanvasElement, opts: { poster?: boolean } = {}): HeroSceneHandle {
+  const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: !!opts.poster });
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
-  renderer.autoClear = false;
+  renderer.toneMappingExposure = 1.1;
 
-  // ---------- Pass 1: the building ----------
   const scene = new Scene();
-  const camera = new PerspectiveCamera(FOV, 1, 0.1, 200);
-  addLights(scene);
+  const camera = new PerspectiveCamera(FOV, 1, 0.5, 400);
 
-  const tex = concreteTexture(rand);
-  const mat = new MeshStandardMaterial({ map: tex, roughness: 0.93, metalness: 0 });
-  const unit = new BoxGeometry(1, 1, 1);
+  // Raking light from the upper left picks out every course; a cool fill keeps the shadows readable.
+  scene.add(new HemisphereLight(0xe9e4dc, 0x1a1512, 0.75));
+  const key = new DirectionalLight(0xffe6c8, 3.1);
+  key.position.set(-9, 7, 6);
+  scene.add(key);
+  const fill = new DirectionalLight(0xc9d6e6, 0.55);
+  fill.position.set(8, -2, 7);
+  scene.add(fill);
 
-  const foundation = new Mesh(unit, new MeshStandardMaterial({ map: tex, roughness: 0.96, metalness: 0, color: 0x6b6a66 }));
-  foundation.scale.set(W + FOUND_PAD * 2, FOUND, D + FOUND_PAD * 2);
-  foundation.position.set(0, -FOUND / 2, 0);
-  scene.add(foundation);
+  const tex = brickTexture();
+  const brickMat = new MeshStandardMaterial({ map: tex, bumpMap: tex, bumpScale: 2.2, roughness: 0.92, metalness: 0 });
+  const brickGeo = new RoundedBoxGeometry(MODULE - JOINT, COURSE - JOINT, DEPTH, 2, 0.07);
+  const bricks = new InstancedMesh(brickGeo, brickMat, MAX_BRICKS);
+  bricks.instanceMatrix.setUsage(DynamicDrawUsage);
+  bricks.frustumCulled = false;
+  scene.add(bricks);
 
-  const { pieces, kinds } = buildPieces(rand);
-  const mesh = new InstancedMesh(unit, mat, pieces.length);
-  mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-  mesh.frustumCulled = false;
-  const tone = new Color();
-  kinds.forEach((k, i) => {
-    // Frame concrete reads lighter and smoother than the block infill.
-    mesh.setColorAt(i, k === 'block' ? tone.setHSL(0.08, 0.04, 0.36 + rand() * 0.16) : tone.setHSL(0.1, 0.03, 0.56 + rand() * 0.08));
-  });
-  scene.add(mesh);
+  // Each brick carries its own bed of mortar behind it: the wall has no backing, so where
+  // a brick and its mortar have gone the canvas is clear and the page shows through.
+  const mortarMat = new MeshStandardMaterial({ color: 0x8c857b, roughness: 1, metalness: 0 });
+  const mortarGeo = new BoxGeometry(MODULE + 0.002, COURSE + 0.002, DEPTH * 0.5);
+  const mortar = new InstancedMesh(mortarGeo, mortarMat, MAX_BRICKS);
+  mortar.instanceMatrix.setUsage(DynamicDrawUsage);
+  mortar.frustumCulled = false;
+  scene.add(mortar);
 
-  // Dust: one Points draw call, a low cloud that rises with the collapse and then settles.
-  const DUST = opts.lowPower ? 120 : 260;
+  // Dust: one Points draw call, puffs that hang where bricks let go, then thin out.
   const dustPos = new Float32Array(DUST * 3);
-  const dustSeed = new Float32Array(DUST * 4);
-  for (let i = 0; i < DUST; i++) {
-    dustSeed[i * 4] = (rand() - 0.5) * (W + 6);
-    dustSeed[i * 4 + 1] = rand() * 2.2;
-    dustSeed[i * 4 + 2] = (rand() - 0.5) * (D + 6);
-    dustSeed[i * 4 + 3] = rand();
-  }
+  const dustCol = new Float32Array(DUST * 4);
   const dustGeo = new BufferGeometry();
   dustGeo.setAttribute('position', new BufferAttribute(dustPos, 3).setUsage(DynamicDrawUsage));
-  const dustMat = new PointsMaterial({
-    map: dustSprite(),
-    size: 1.3,
-    transparent: true,
-    depthWrite: false,
-    opacity: 0.03,
-    color: 0xd8d2c4,
-    blending: AdditiveBlending,
-  });
+  dustGeo.setAttribute('color', new BufferAttribute(dustCol, 4).setUsage(DynamicDrawUsage));
+  const dustMat = new PointsMaterial({ map: dustSprite(), size: 2.6, transparent: true, depthWrite: false, vertexColors: true, blending: NormalBlending });
   const dust = new Points(dustGeo, dustMat);
   dust.frustumCulled = false;
   scene.add(dust);
 
+  // Per-brick data, rebuilt whenever the frame changes size.
+  let count = 0;
+  const bx = new Float32Array(MAX_BRICKS);
+  const by = new Float32Array(MAX_BRICKS);
+  const t0 = new Float32Array(MAX_BRICKS); // progress at which it lets go
+  const vel = new Float32Array(MAX_BRICKS * 3);
+  const spin = new Float32Array(MAX_BRICKS * 3);
+  const wob = new Float32Array(MAX_BRICKS * 2); // resting imperfection
+  const dustSeed = new Float32Array(DUST * 6); // brick, ox, oy, vx, vy, size
+
+  let visW = 1; // visible wall, in courses
+  let visH = 1;
+  let camDist = 30;
+
   const m = new Matrix4();
+  const m2 = new Matrix4();
   const q = new Quaternion();
   const e = new Euler();
-  const p = new Vector3();
+  const pos = new Vector3();
+  const scl = new Vector3(1, 1, 1);
+  const offset = new Matrix4().makeTranslation(0, 0, -DEPTH * 0.5);
+  const col = new Color();
 
-  let progress = 0;
-  let smooth = 0;
+  function layout() {
+    const Wpx = Math.max(1, canvas.clientWidth);
+    const Hpx = Math.max(1, canvas.clientHeight);
+    // object-fit: cover against the reference frame, scaled about the center.
+    const s = Math.max(Wpx / POSTER_FRAME.width, Hpx / POSTER_FRAME.height);
+    const coursePx = (POSTER_FRAME.height / COURSES) * s;
+    visH = Hpx / coursePx;
+    visW = Wpx / coursePx;
+    camDist = visH / 2 / Math.tan(MathUtils.degToRad(FOV / 2));
+    camera.aspect = Wpx / Hpx;
+    camera.updateProjectionMatrix();
+
+    // Strike point: right of center, a little above the middle.
+    const ix = visW * 0.17;
+    const iy = visH * 0.04;
+    const far = Math.hypot(visW / 2 + Math.abs(ix) + MODULE, visH / 2 + Math.abs(iy) + 1);
+
+    const rows = Math.ceil(visH / 2) + 2;
+    const cols = Math.ceil(visW / 2 / MODULE) + 2;
+    count = 0;
+    for (let r = -rows; r <= rows; r++) {
+      const shift = (r & 1) * (MODULE / 2);
+      for (let c = -cols; c <= cols && count < MAX_BRICKS; c++) {
+        const i = count++;
+        const x = c * MODULE + shift;
+        const y = r * COURSE;
+        bx[i] = x;
+        by[i] = y;
+        const h1 = hash(r, c, 1);
+        const h2 = hash(r, c, 2);
+        const h3 = hash(r, c, 3);
+        const dx = x - ix;
+        const dy = y - iy;
+        const d = Math.hypot(dx, dy);
+        const dn = Math.min(1, d / far);
+        t0[i] = 0.05 + 0.55 * Math.pow(dn, 1.05) + (h1 - 0.5) * 0.07;
+        // Near the strike: blown out hard toward the camera. Toward the edges: they mostly drop.
+        const kick = (1 - dn) * (1 - dn);
+        const out = 1.5 + kick * 9;
+        const ux = d > 0.01 ? dx / d : 0;
+        const uy = d > 0.01 ? dy / d : 0;
+        vel[i * 3] = ux * out * (0.7 + h2 * 0.6);
+        vel[i * 3 + 1] = uy * out * (0.6 + h3 * 0.6) + 2 + kick * 5;
+        vel[i * 3 + 2] = 2 + kick * 16 * (0.6 + h2 * 0.7);
+        spin[i * 3] = (h3 - 0.5) * 7;
+        spin[i * 3 + 1] = (h1 - 0.5) * 6;
+        spin[i * 3 + 2] = (h2 - 0.5) * 5 - ux * 2;
+        wob[i * 2] = (h2 - 0.5) * 0.02;
+        wob[i * 2 + 1] = (h3 - 0.5) * 0.035;
+
+        // Tone, then shade: darker down the left and along the bottom, where the hero's
+        // type sits. The shade is in the brick's color, so it leaves with the brick.
+        const tone = BRICK_TONES[Math.floor(h1 * 7919) % BRICK_TONES.length];
+        const sx = smoothstep(-visW * 0.5, visW * 0.25, x);
+        const sy = smoothstep(-visH * 0.55, visH * 0.15, y);
+        const shade = (0.3 + 0.7 * sx) * (0.55 + 0.45 * sy) * (0.92 + h3 * 0.16);
+        col.copy(tone).multiplyScalar(shade);
+        bricks.setColorAt(i, col);
+        mortar.setColorAt(i, col.setScalar(shade));
+      }
+    }
+    bricks.count = count;
+    mortar.count = count;
+    if (bricks.instanceColor) bricks.instanceColor.needsUpdate = true;
+    if (mortar.instanceColor) mortar.instanceColor.needsUpdate = true;
+
+    // Dust puffs ride along with the bricks nearest the strike more often.
+    let seed = 7;
+    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let k = 0; k < DUST; k++) {
+      let j = Math.floor(r() * count);
+      if (r() < 0.55) {
+        // Re-pick toward early bricks: more dust where the wall is hit hardest.
+        const j2 = Math.floor(r() * count);
+        if (t0[j2] < t0[j]) j = j2;
+      }
+      dustSeed[k * 6] = j;
+      dustSeed[k * 6 + 1] = (r() - 0.5) * MODULE;
+      dustSeed[k * 6 + 2] = (r() - 0.5) * COURSE;
+      dustSeed[k * 6 + 3] = (r() - 0.5) * 2.2;
+      dustSeed[k * 6 + 4] = 0.3 + r() * 1.1;
+      dustSeed[k * 6 + 5] = 0.5 + r() * 0.9;
+    }
+  }
+
+  const G = 26; // courses per unit time squared
+  const SPEED = 4; // unit time per unit of progress
+
+  function place(t: number) {
+    for (let i = 0; i < count; i++) {
+      const tau = (t - t0[i]) * SPEED;
+      const loosen = smoothstep(t0[i] - 0.09, t0[i], t);
+      if (tau <= 0) {
+        // Standing; just ahead of the break it works loose and starts to lean out.
+        pos.set(bx[i], by[i], loosen * 0.22);
+        e.set(wob[i * 2] + loosen * spin[i * 3] * 0.012, wob[i * 2] * 0.5, wob[i * 2 + 1] + loosen * spin[i * 3 + 2] * 0.02);
+        scl.setScalar(1);
+      } else {
+        pos.set(
+          bx[i] + vel[i * 3] * tau,
+          by[i] + vel[i * 3 + 1] * tau - 0.5 * G * tau * tau,
+          0.22 + vel[i * 3 + 2] * tau,
+        );
+        e.set(wob[i * 2] + spin[i * 3] * tau, spin[i * 3 + 1] * tau, wob[i * 2 + 1] + spin[i * 3 + 2] * tau);
+        scl.setScalar(1);
+      }
+      q.setFromEuler(e);
+      m.compose(pos, q, scl);
+      bricks.setMatrixAt(i, m);
+      // Mortar breaks up as soon as its brick goes.
+      const ms = tau <= 0 ? 1 : Math.max(0.0001, 1 - tau * 2.6);
+      m2.copy(m).multiply(offset);
+      if (ms < 1) m2.scale(pos.set(ms, ms, ms));
+      mortar.setMatrixAt(i, m2);
+    }
+    bricks.instanceMatrix.needsUpdate = true;
+    mortar.instanceMatrix.needsUpdate = true;
+
+    for (let k = 0; k < DUST; k++) {
+      const j = dustSeed[k * 6];
+      const age = (t - t0[j]) * SPEED;
+      const o = k * 4;
+      if (age <= 0 || age > 2.2) {
+        dustCol[o + 3] = 0;
+        continue;
+      }
+      dustPos[k * 3] = bx[j] + dustSeed[k * 6 + 1] + dustSeed[k * 6 + 3] * age;
+      dustPos[k * 3 + 1] = by[j] + dustSeed[k * 6 + 2] + dustSeed[k * 6 + 4] * age - 0.4 * age * age;
+      dustPos[k * 3 + 2] = 0.6 + age * 1.4;
+      const a = smoothstep(0, 0.12, age) * (1 - smoothstep(0.4, 2.2, age));
+      dustCol[o] = 0.78;
+      dustCol[o + 1] = 0.72;
+      dustCol[o + 2] = 0.66;
+      dustCol[o + 3] = a * 0.38 * dustSeed[k * 6 + 5];
+    }
+    (dustGeo.attributes.position as BufferAttribute).needsUpdate = true;
+    (dustGeo.attributes.color as BufferAttribute).needsUpdate = true;
+  }
+
+  let target = 0; // where the scroll says the demolition is
+  let shown = 0; // where the drawn frame is (eases toward target)
+  let placed = -1;
   const pointer = { x: 0, y: 0, sx: 0, sy: 0 };
   let running = false;
   let raf = 0;
-  let last = performance.now();
-  let time = 0;
-  let box: Rect | null = null;
-  let clipBottom: number | null = null;
-  let boxAspect = 0;
-  let camDist = 0;
+  let dirty = true;
 
-  function layoutPieces(t: number) {
-    pieces.forEach((b, i) => {
-      const tau = MathUtils.clamp((t - b.t0) / b.dur, 0, 1);
-      if (tau === 0) {
-        p.copy(b.base);
-        e.set(b.tilt.x, b.tilt.y, b.tilt.z);
-      } else {
-        // Horizontal drift eases out, the drop accelerates (gravity), plus the bucket's kick.
-        const hz = 1 - (1 - tau) * (1 - tau);
-        const g = tau * tau;
-        p.set(
-          b.base.x + (b.end.x - b.base.x) * hz,
-          b.base.y + (b.end.y - b.base.y) * g + b.lift * 4 * tau * (1 - tau),
-          b.base.z + (b.end.z - b.base.z) * hz,
-        );
-        const r = smoothstep(0, 1, tau);
-        e.set(b.tilt.x + (b.endRot.x - b.tilt.x) * r, b.tilt.y + (b.endRot.y - b.tilt.y) * r, b.tilt.z + (b.endRot.z - b.tilt.z) * r);
-      }
-      q.setFromEuler(e);
-      m.compose(p, q, b.size);
-      mesh.setMatrixAt(i, m);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-  }
-
-  function layoutDust(t: number) {
-    const puff = smoothstep(0.06, 0.16, t) * (1 - smoothstep(0.2, 0.34, t)) * 0.35; // the corner hit
-    const rise = smoothstep(0.3, 0.72, t); // the collapse
-    const settle = smoothstep(0.78, 1, t);
-    for (let i = 0; i < DUST; i++) {
-      const s = dustSeed[i * 4 + 3];
-      const drift = time * (0.05 + s * 0.12);
-      dustPos[i * 3] = dustSeed[i * 4] * (0.7 + rise * 0.5) + Math.sin(drift + s * 10) * 0.5;
-      dustPos[i * 3 + 1] = dustSeed[i * 4 + 1] * (1 + rise * 3.2 * s) * (1 - settle * 0.55) + Math.sin(drift * 0.7 + s * 4) * 0.15;
-      dustPos[i * 3 + 2] = dustSeed[i * 4 + 2] * (0.7 + rise * 0.5) + Math.cos(drift + s * 7) * 0.5;
-    }
-    dustGeo.attributes.position.needsUpdate = true;
-    // Big, faint, overlapping sprites read as a cloud; small bright ones read as sparkle.
-    dustMat.opacity = 0.03 + puff * 0.5 + rise * (0.2 - settle * 0.12);
-    dustMat.size = 1.3 + rise * 2.6;
-  }
-
-  function frameCamera(aspect: number) {
-    camera.aspect = aspect;
-    camDist = fitDistance(aspect);
-    camera.updateProjectionMatrix();
+  function frameCamera() {
+    // A touch of parallax: enough to feel the depth in the wall, never enough to show an edge.
+    camera.position.set(pointer.sx * 0.5, -pointer.sy * 0.3, camDist);
+    camera.lookAt(pointer.sx * 0.15, -pointer.sy * 0.1, 0);
   }
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, opts.lowPower ? 1 : 1.5);
-    renderer.setPixelRatio(opts.poster ? 2 : dpr);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    renderer.setPixelRatio(opts.poster ? 1 : dpr);
     renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
-    boxAspect = 0; // re-frame the building on the next render
+    layout();
+    dirty = true;
   }
 
   function render() {
-    const W = canvas.clientWidth;
-    const H = canvas.clientHeight;
-    renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, W, H);
-    renderer.clear();
-
-    // Pass 1: the building, only where its box is on screen and not covered by the next section.
-    const r = box ?? { left: 0, top: 0, width: W, height: H };
-    const visTop = Math.max(0, r.top);
-    const visBottom = Math.min(H, r.top + r.height, clipBottom ?? Infinity);
-    if (visBottom > visTop) {
-      const aspect = r.width / Math.max(r.height, 1);
-      if (Math.abs(aspect - boxAspect) > 1e-4) {
-        boxAspect = aspect;
-        frameCamera(aspect);
-      }
-      // Gentle camera sway toward the pointer, a slow orbit, and a drop to the rubble at the end.
-      pointer.sx += (pointer.x - pointer.sx) * 0.05;
-      pointer.sy += (pointer.y - pointer.sy) * 0.05;
-      const down = smoothstep(0.35, 0.95, smooth);
-      const yaw = YAW + smooth * 0.14 + pointer.sx * 0.08;
-      const pitch = PITCH + down * 0.1 + pointer.sy * 0.04;
-      const dist = camDist * (1 - down * 0.24);
-      const lookY = LOOK_Y - down * 2.6;
-      placeCamera(camera, yaw, pitch, dist, lookY);
-      const y = H - (r.top + r.height); // WebGL viewports start bottom-left
-      renderer.setViewport(r.left, y, r.width, r.height);
-      renderer.setScissor(Math.max(0, r.left), H - visBottom, Math.min(r.width, W), visBottom - visTop);
-      renderer.setScissorTest(true);
-      renderer.render(scene, camera);
-      renderer.setScissorTest(false);
+    if (placed !== shown || dirty) {
+      const done = shown >= 1;
+      bricks.visible = mortar.visible = dust.visible = !done;
+      if (!done) place(shown);
+      placed = shown;
     }
-
+    frameCamera();
+    renderer.render(scene, camera);
+    dirty = false;
   }
 
-  function tick(now: number) {
-    const dt = Math.min((now - last) / 1000, 0.05);
-    last = now;
-    time += dt;
-    smooth += (progress - smooth) * Math.min(1, dt * 7);
-    if (Math.abs(progress - smooth) < 0.0005) smooth = progress;
-    const heroOnScreen = !box || (box.top + box.height > 0 && box.top < canvas.clientHeight && (clipBottom ?? Infinity) > Math.max(0, box.top));
-
-    // Only draw while the stage is on screen (the dust drifts, so it animates even when still).
-    if (heroOnScreen) {
-      layoutPieces(smooth);
-      layoutDust(smooth);
-      render();
-    }
-    if (running) raf = requestAnimationFrame(tick);
+  function tick() {
+    raf = 0;
+    if (!running) return;
+    const before = shown;
+    // Ease toward the scroll position so a flick of the wheel still reads as motion.
+    shown = Math.abs(target - shown) < 0.0005 ? target : shown + (target - shown) * 0.2;
+    const pmove = Math.abs(pointer.x - pointer.sx) + Math.abs(pointer.y - pointer.sy) > 0.0005;
+    pointer.sx += (pointer.x - pointer.sx) * 0.06;
+    pointer.sy += (pointer.y - pointer.sy) * 0.06;
+    if (shown !== before || pmove || dirty) render();
+    raf = requestAnimationFrame(tick);
   }
 
   resize();
-  layoutPieces(0);
-  layoutDust(0);
 
   return {
-    setBox(r) {
-      box = r;
-    },
-    setClip(bottom) {
-      clipBottom = bottom;
-    },
-    setProgress(v) {
-      progress = MathUtils.clamp(v, 0, 1);
+    setProgress(p) {
+      target = MathUtils.clamp(p, 0, 1);
     },
     setPointer(x, y) {
+      // Once the wall is gone there's nothing to look around.
+      if (target >= 1) return;
       pointer.x = x;
       pointer.y = y;
     },
     setRunning(on) {
-      if (on === running) return;
       running = on;
-      if (on) {
-        last = performance.now();
-        raf = requestAnimationFrame(tick);
-      } else cancelAnimationFrame(raf);
+      if (on && !raf) raf = requestAnimationFrame(tick);
+      if (!on && raf) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
     },
     renderOnce() {
-      layoutPieces(smooth);
-      layoutDust(smooth);
+      shown = target;
+      dirty = true;
       render();
     },
-    resize,
+    resize() {
+      resize();
+      if (!running) render();
+    },
     dispose() {
       cancelAnimationFrame(raf);
       running = false;
-      unit.dispose();
+      brickGeo.dispose();
+      brickMat.dispose();
       tex.dispose();
-      mat.dispose();
-      (foundation.material as MeshStandardMaterial).dispose();
+      mortarGeo.dispose();
+      mortarMat.dispose();
       dustGeo.dispose();
       dustMat.map?.dispose();
       dustMat.dispose();
-      mesh.dispose();
+      bricks.dispose();
+      mortar.dispose();
       renderer.dispose();
     },
   };

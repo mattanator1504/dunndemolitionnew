@@ -147,7 +147,7 @@
     font-weight: 800;
     font-stretch: 118%;
     text-transform: uppercase;
-    font-size: clamp(2.3rem, 5.4vw, 5.25rem);
+    font-size: clamp(2.3rem, 5vw, 5.25rem);
     line-height: 0.88;
     letter-spacing: -0.025em;
   }
@@ -498,4 +498,52 @@ html.lenis body {
   transform: translateY(115%) rotate(var(--sr));
   transition: transform 720ms cubic-bezier(0.55, 0, 0.8, 0.25);
   transition-delay: calc((7 - var(--si)) * 26ms);
+}
+
+/* Home hero (Hero.tsx). Under js-pin the section is a see-through track two stages tall,
+   layered over the start of the page (app/page.tsx pulls the page up under it). Its stage
+   sticks below the header while the wall comes down; HeroSceneMount writes --p (0..1) and
+   data-cleared. The poster fades with --p until the live scene takes over, the copy lifts
+   away first, and only the copy takes clicks so the page behind stays usable. */
+.js-pin .hero {
+  z-index: 20;
+  height: calc(200svh - 9rem);
+  background: none;
+  pointer-events: none;
+}
+.js-pin .hero-stage {
+  position: sticky;
+  top: 4.5rem;
+  height: calc(100svh - 4.5rem);
+}
+.js-pin .hero-copy {
+  pointer-events: auto;
+  opacity: calc(1 - var(--p, 0) * 2.4);
+  transform: translate3d(0, calc(var(--p, 0) * -12vh), 0);
+  will-change: transform, opacity;
+}
+.js-pin .hero[data-cleared] .hero-copy {
+  visibility: hidden;
+}
+.js-pin .hero-poster {
+  opacity: calc(1 - var(--p, 0) * 3);
+}
+.js-pin .hero[data-scene='live'] .hero-poster {
+  opacity: 0;
+}
+.js-pin .hero-cue {
+  display: flex;
+}
+.hero-cue-arrow {
+  animation: hero-cue 1.6s ease-in-out infinite;
+}
+@keyframes hero-cue {
+  50% {
+    transform: translateY(5px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-cue-arrow {
+    animation: none;
+  }
 }

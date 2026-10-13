@@ -97,7 +97,7 @@ export default function AboutPage() {
           </div>
           <ul className="grid gap-4 self-end sm:grid-cols-2">
             {[site.license, ...site.insurance, `Member, ${site.memberships[0]}`].map((item, i) => (
-              <li key={item} className="slab flex items-center gap-4 p-5 font-bold uppercase leading-tight [font-stretch:110%]" data-reveal style={{ '--i': i } as React.CSSProperties}>
+              <li key={item} className="slab flex items-center gap-4 p-5 font-bold uppercase leading-tight [font-stretch:110%] lg:text-base" data-reveal style={{ '--i': i } as React.CSSProperties}>
                 <span className="h-4 w-4 shrink-0 bg-accent" aria-hidden="true" />
                 {item}
               </li>

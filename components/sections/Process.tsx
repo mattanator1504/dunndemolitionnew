@@ -37,11 +37,11 @@ export function Process() {
                 <span
                   data-num
                   aria-hidden="true"
-                  className="num font-display text-[clamp(6rem,14vw,15rem)] font-black leading-[0.8] tracking-[-0.05em] text-transparent [-webkit-text-stroke:1.5px_var(--color-dust)] [font-stretch:125%]"
+                  className="num font-display text-[clamp(6rem,14vw,15rem)] font-black lg:text-[clamp(5rem,8.5vw,9rem)] lg:[.js-motion_&]:text-[clamp(6rem,14vw,15rem)] leading-[0.8] tracking-[-0.05em] text-transparent [-webkit-text-stroke:1.5px_var(--color-dust)] [font-stretch:125%]"
                 >
                   {String(i + 1).padStart(2, '0')}
                 </span>
-                <h3 className="h-card mt-8 text-[1.7rem]">{s.title}</h3>
+                <h3 className="h-card mt-8 text-[1.7rem] lg:text-[1.4rem] lg:[.js-motion_&]:text-[1.7rem]">{s.title}</h3>
                 <p className="mt-4 max-w-xs text-dust">{s.body}</p>
               </li>
             ))}

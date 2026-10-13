@@ -21,7 +21,7 @@ export function WhyDunn() {
     <section className="relative bg-paper py-24 lg:py-36" aria-labelledby="why-title">
       <div className="container-x grid gap-14 lg:grid-cols-12 lg:gap-10">
         <div className="lg:sticky lg:top-32 lg:col-span-5 lg:self-start">
-          <h2 id="why-title" className="h-section" data-reveal aria-label="Not every demolition contractor is the same">
+          <h2 id="why-title" className="h-section lg:text-[clamp(2.3rem,4vw,4.25rem)]" data-reveal aria-label="Not every demolition contractor is the same">
             <Split text="Not every demolition contractor is the same" />
           </h2>
           <p className="lede mt-6 text-muted" data-reveal>

@@ -29,9 +29,10 @@ export default function HomePage() {
   return (
     <>
       <Hero />
-      {/* Everything after the hero rides one layer above it. Under js-pin it pulls up one
-          stage height, so the statement, then the rest of the page, slide over the rubble. */}
-      <div className="relative z-10 [.js-pin_&]:-mt-[calc(100svh-4.5rem)]">
+      {/* Under js-pin the page pulls up the hero's whole track, so it starts underneath the
+          pinned wall (the hero layers above it) and shows through as the wall comes down.
+          The statement's extra top padding under js-pin is that track, minus one stage. */}
+      <div className="relative z-10 [.js-pin_&]:-mt-[calc(200svh-9rem)]">
         <Statement />
 
         <section className="on-ink relative bg-ink py-24 text-paper lg:py-36" aria-labelledby="services-title">
@@ -62,7 +63,7 @@ export default function HomePage() {
         <section className="bg-paper py-24 lg:py-36" aria-labelledby="faq-title">
           <div className="container-x grid gap-14 lg:grid-cols-12 lg:gap-10">
             <div className="lg:col-span-4">
-              <h2 id="faq-title" className="h-section" data-reveal aria-label="Straight answers">
+              <h2 id="faq-title" className="h-section lg:text-[clamp(2.3rem,3.9vw,4.25rem)]" data-reveal aria-label="Straight answers">
                 <Split text="Straight answers" />
               </h2>
               <Link href="/faqs" className="label link-draw mt-10 inline-block pb-1" data-reveal>

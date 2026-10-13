@@ -64,7 +64,7 @@ They're general guides. Where they differ from this file or `technical-seo.md` �
 - **Next.js** (App Router, latest stable) + **TypeScript**
 - **Static export:** `output: 'export'`, `trailingSlash: false`, so the current URLs work without redirects
 - **Tailwind CSS**
-- **3D:** plain `three` (no React Three Fiber: one scene doesn't need it, and it keeps the 3D chunk at ~134 KB gz). `components/three/HeroScene.ts` is imported dynamically by `HeroSceneMount.tsx` on first interaction or after 6 s idle, on capable desktops only. It's one fixed, click-through canvas with two passes: the wall inside the hero box, then debris that tumbles down the page gutters and lands in a pile on the footer (home page only). Add `?3d` to a URL to skip the low-power checks when testing.
+- **3D:** plain `three` (no React Three Fiber: one scene doesn't need it, and it keeps the 3D chunk at ~134 KB gz). `components/three/HeroScene.ts` is imported dynamically by `HeroSceneMount.tsx` on first interaction or after 6 s idle, on capable desktops only. The home hero is a full-bleed brick wall (poster first, then the live scene): the hero is a pinned, see-through track layered over the start of the page, and scrolling it knocks the wall out from the middle so the page behind shows through. Add `?3d` to a URL to skip the low-power checks when testing.
 - **Motion:** GSAP + ScrollTrigger for scroll-driven sequences, and Lenis for smooth scroll (off under reduced motion). Small UI transitions use CSS.
 - **Content:** TypeScript files in `/content`
 - **Images:** Unsplash, downloaded once and self-hosted as pre-optimised WebP/AVIF in `/public/images`, with the photographer credited in `data/image-credits.csv`. Real Dunn photos replace stock as they arrive. Don't hotlink.
@@ -79,7 +79,7 @@ They're general guides. Where they differ from this file or `technical-seo.md` �
 
 | URL | Page | Notes |
 |-----|------|-------|
-| `/` | Home | 3D hero "We break it down." → stats → 6 photo service cards → why Dunn → photo filmstrip → recycled stone banner → how it works (4 steps) → testimonials (only if verified) → 4 FAQs → quote CTA. Keep it to 600 words or fewer. |
+| `/` | Home | Brick-wall 3D hero "We break it down." (breaks through to the page on scroll) → stats → 6 photo service cards → why Dunn → photo filmstrip → recycled stone banner → how it works (4 steps) → testimonials (only if verified) → 4 FAQs → quote CTA. Keep it to 600 words or fewer. |
 | `/about` | About | The Dunn legacy since 1974, crews and experience, licensing and insurance, safety and permits |
 | `/services` | Services overview | Demolition services, recycling and stone sales, equipment, locations and hours, who to call |
 | `/faqs` | FAQs | All 19 Q&As, FAQPage schema |
@@ -163,7 +163,7 @@ This is a local business with three physical locations.
 
 **3D and motion**
 
-- **Hero:** a real-time 3D scene behind "We break it down." (for example, a wall of concrete blocks that fractures and falls as you scroll, with dust particles and a slow camera dolly). The hero text and a static poster image render first. The canvas fades in after load.
+- **Hero:** a real-time 3D brick wall behind "We break it down.", filling the whole hero. As you scroll, it breaks out from a strike point and the bricks blow toward the camera and fall away with dust, exposing the page behind. The hero text and a static poster image render first. The canvas fades in after load.
 - **Scroll:** sections reveal with staggered fade-up and slide; parallax on photos; stats count up; the "How it works" steps advance on a pinned scroll timeline; service cards tilt slightly in 3D on hover.
 - **Rules:** one heavy 3D scene per page at most. Pause rendering when it's off-screen or the tab is hidden. Cap the device pixel ratio at 1.5. Keep each model under 1 MB. On mobile and low-power devices, use the static poster or a lighter scene. Under `prefers-reduced-motion`, show no 3D animation, smooth scroll, parallax or count-ups, only the final states.
 - Tokens and rationale go at the top of `app/globals.css`.

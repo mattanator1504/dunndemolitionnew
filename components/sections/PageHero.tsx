@@ -26,7 +26,7 @@ export function PageHero({ crumbs, title, lede, image, cta = 'quote' }: Props) {
       <div className={`container-x grid gap-10 pb-12 pt-8 lg:gap-12 lg:pb-16 lg:pt-12 ${image ? 'lg:grid-cols-12 lg:items-end' : ''}`}>
         <div className={image ? 'lg:col-span-7' : ''}>
           <Breadcrumbs items={crumbs} />
-          <DemoTitle text={title} className="display mt-8 max-w-[14ch] text-[clamp(2.6rem,6.4vw,6.75rem)] lg:mt-12" />
+          <DemoTitle text={title} className="display mt-8 max-w-[14ch] text-[clamp(2.6rem,6.4vw,6.75rem)] lg:mt-12 lg:text-[clamp(2.6rem,5.8vw,6.75rem)]" />
           <div className="lede mt-7 text-dust">{lede}</div>
           {cta !== 'none' && (
             <div className="mt-8 flex flex-wrap gap-3">

@@ -49,7 +49,7 @@ export default function BuyPage() {
               <a href={`#${m.id}`} className="group block">
                 <span className="relative block aspect-[3/4] overflow-hidden" data-reveal="blocks">
                   <Photo name={materialImages[m.id]} alt="" sizes="(min-width: 768px) 20vw, 50vw" maxWidth={640} className="photo absolute inset-0 h-full w-full object-cover transition-transform duration-700 ease-[var(--ease-out-heavy)] group-hover:scale-110" />
-                  <span className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-ink/85 to-transparent p-3 pt-12 text-paper">
+                  <span className="absolute inset-x-0 bottom-0 flex flex-wrap items-end justify-between gap-x-2 bg-gradient-to-t from-ink/85 to-transparent p-3 pt-12 text-paper">
                     <span className="label">{m.name}</span>
                     <span className="num font-mono text-lg text-accent" data-scramble>
                       {money(Math.min(...m.lines.map((l) => l.price)))}

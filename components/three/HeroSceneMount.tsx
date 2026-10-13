@@ -6,10 +6,11 @@ import type { HeroSceneHandle } from './HeroScene';
 // Decides whether and when the 3D wall loads (technical-seo.md §4):
 // - never under reduced motion, Save-Data, no WebGL, small screens or low-power devices
 // - otherwise on the first user interaction, or once the page has been idle a while
-// The poster (same framing as the scene's first frame) is always rendered first.
-// The canvas fills the hero's scene box (click-through). Under html.js-pin the hero is a
-// tall track with a sticky stage; progress runs across the track up to where the rest of
-// the page starts sliding over it.
+// The poster (the scene's first frame) is always rendered first, full-bleed under the canvas.
+// Under html.js-pin the hero is a tall track with a sticky stage over the start of the page;
+// this writes the scroll progress through that track to #hero as --p (and data-cleared once
+// the copy has gone), whether or not the 3D has loaded yet, so the CSS can fade the poster
+// and the hero copy on its own.
 
 function canRun3D() {
   if (typeof window === 'undefined') return false;
@@ -31,8 +32,9 @@ function canRun3D() {
 }
 
 export function HeroSceneMount({ heroId }: { heroId: string }) {
-  const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const handleRef = useRef<HeroSceneHandle | undefined>(undefined);
+  const progressRef = useRef(0);
   const [active, setActive] = useState(false);
   const [shown, setShown] = useState(false);
 
@@ -40,12 +42,11 @@ export function HeroSceneMount({ heroId }: { heroId: string }) {
   useEffect(() => {
     if (!canRun3D()) {
       // The boot script pinned the hero for a scene that can't run here (e.g. no WebGL2):
-      // unpin, so the poster isn't held for screens of dead scroll.
+      // unpin, so the wall is a plain hero instead of screens of dead scroll.
       document.documentElement.classList.remove('js-pin');
       return;
     }
-    const poster = new URLSearchParams(location.search).has('poster');
-    if (poster) {
+    if (new URLSearchParams(location.search).has('poster')) {
       setActive(true);
       return;
     }
@@ -69,58 +70,64 @@ export function HeroSceneMount({ heroId }: { heroId: string }) {
     return cleanup;
   }, []);
 
+  // Scroll progress through the pinned track: 0 at rest, 1 when the stage lets go.
+  useEffect(() => {
+    const hero = document.getElementById(heroId);
+    if (!hero) return;
+    const header = document.querySelector('header');
+    let raf = 0;
+    const sync = () => {
+      raf = 0;
+      let p = 0;
+      if (document.documentElement.classList.contains('js-pin')) {
+        const r = hero.getBoundingClientRect();
+        const headerH = header?.offsetHeight ?? 0;
+        const travel = r.height - (innerHeight - headerH);
+        if (travel > 0) p = Math.min(1, Math.max(0, (headerH - r.top) / travel));
+      }
+      progressRef.current = p;
+      hero.style.setProperty('--p', p.toFixed(4));
+      hero.toggleAttribute('data-cleared', p > 0.45);
+      handleRef.current?.setProgress(p);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(sync);
+    };
+    sync();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [heroId]);
+
   // Step 2: load three.js and run the scene.
   useEffect(() => {
-    if (!active || !canvasRef.current || !boxRef.current) return;
-    let handle: HeroSceneHandle | undefined;
+    if (!active || !canvasRef.current) return;
     let disposed = false;
-    let raf = 0;
     let ro: ResizeObserver | undefined;
     const poster = new URLSearchParams(location.search).has('poster');
     const hero = document.getElementById(heroId);
+    const canvas = canvasRef.current;
 
-    const header = document.querySelector('header');
-    const pctEl = hero?.querySelector<HTMLElement>('[data-hero-pct]') ?? null;
-    const sync = () => {
-      if (!hero || !handle || !boxRef.current) return;
-      const r = hero.getBoundingClientRect();
-      const headerH = header?.offsetHeight ?? 0;
-      const stage = innerHeight - headerH;
-      // Pinned: the track minus the stage, minus the stretch where the rest of the page slides over.
-      const travel = r.height - 2 * stage;
-      const p = Math.min(1, Math.max(0, travel > stage * 0.5 ? (headerH - r.top) / travel : -r.top / (r.height * 0.8)));
-      handle.setProgress(p);
-      // Site log readout (Hero.tsx): which beat we're in, the bar, and the percentage.
-      const beat = String(p < 0.04 ? 0 : p < 0.3 ? 1 : p < 0.8 ? 2 : 3);
-      if (hero.dataset.beat !== beat) hero.dataset.beat = beat;
-      hero.style.setProperty('--p', p.toFixed(3));
-      const pct = `${Math.round(p * 100)}%`;
-      if (pctEl && pctEl.textContent !== pct) pctEl.textContent = pct;
-
-    };
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(sync);
-    };
     const onPointer = (e: PointerEvent) => {
-      handle?.setPointer((e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1);
+      handleRef.current?.setPointer((e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1);
     };
-    const onResize = () => {
-      handle?.resize();
-      sync();
-    };
-    const onVisibility = () => handle?.setRunning(!document.hidden);
+    const onResize = () => handleRef.current?.resize();
+    const onVisibility = () => handleRef.current?.setRunning(!document.hidden);
 
-    import('./HeroScene').then(({ createHeroScene, FRAME_ASPECT }) => {
-      Object.assign(window, { __frameAspect: FRAME_ASPECT });
+    import('./HeroScene').then(({ createHeroScene, POSTER_FRAME }) => {
       if (disposed || !canvasRef.current) return;
-      handle = createHeroScene(canvasRef.current, { poster });
+      const handle = createHeroScene(canvas, { poster });
+      handleRef.current = handle;
       if (poster) {
         handle.renderOnce();
-        Object.assign(window, { __heroScene: handle, __posterReady: true });
+        Object.assign(window, { __heroScene: handle, __posterFrame: POSTER_FRAME, __posterReady: true });
         return;
       }
-      sync();
+      handle.setProgress(progressRef.current);
       handle.renderOnce();
       requestAnimationFrame(() => {
         setShown(true);
@@ -128,29 +135,25 @@ export function HeroSceneMount({ heroId }: { heroId: string }) {
         window.setTimeout(() => hero?.setAttribute('data-scene', 'live'), 700);
       });
       handle.setRunning(!document.hidden);
-      window.addEventListener('scroll', onScroll, { passive: true });
       window.addEventListener('pointermove', onPointer, { passive: true });
-      window.addEventListener('resize', onResize);
       ro = new ResizeObserver(onResize);
-      if (boxRef.current) ro.observe(boxRef.current);
+      ro.observe(canvas);
       document.addEventListener('visibilitychange', onVisibility);
     });
 
     return () => {
       disposed = true;
-      cancelAnimationFrame(raf);
-      window.removeEventListener('scroll', onScroll);
       window.removeEventListener('pointermove', onPointer);
-      window.removeEventListener('resize', onResize);
       ro?.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
-      handle?.dispose();
+      handleRef.current?.dispose();
+      handleRef.current = undefined;
       hero?.removeAttribute('data-scene');
     };
   }, [active, heroId]);
 
   return (
-    <div ref={boxRef} className="absolute inset-0" aria-hidden="true">
+    <div className="absolute inset-0" aria-hidden="true">
       {active && (
         <canvas
           ref={canvasRef}
