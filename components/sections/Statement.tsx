@@ -13,7 +13,7 @@ export function Statement() {
     { value: `${site.stats.projectsPerYear}`, count: site.stats.projectsPerYear, label: 'Or so demolition projects a year' },
   ];
   return (
-    <section aria-label="Dunn Demolition at a glance" className="relative bg-paper pb-20 pt-24 lg:pb-28 lg:pt-36 [.js-pin_&]:pt-[calc(100svh+4.5rem)]">
+    <section aria-label="Dunn Demolition at a glance" className="relative bg-paper pb-20 pt-24 lg:pb-28 lg:pt-36 [.js-pin_&]:pt-[calc(150svh+2.25rem)]">
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
         <div className="container-x relative h-full">
           <div className="guides" />

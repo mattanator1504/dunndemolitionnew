@@ -32,7 +32,7 @@ export default function HomePage() {
       {/* Under js-pin the page pulls up the hero's whole track, so it starts underneath the
           pinned wall (the hero layers above it) and shows through as the wall comes down.
           The statement's extra top padding under js-pin is that track, minus one stage. */}
-      <div className="relative z-10 [.js-pin_&]:-mt-[calc(200svh-9rem)]">
+      <div className="relative z-10 [.js-pin_&]:-mt-[calc(250svh-11.25rem)]">
         <Statement />
 
         <section className="on-ink relative bg-ink py-24 text-paper lg:py-36" aria-labelledby="services-title">

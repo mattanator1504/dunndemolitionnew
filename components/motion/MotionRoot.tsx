@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { dust } from '@/components/fx/dust';
+import { dust, dustLine } from '@/components/fx/dust';
 
 // Wires up the page's motion once per route:
 // - [data-reveal]: "set-down" reveal when scrolled into view (CSS does the animation)
@@ -56,7 +56,7 @@ export function MotionRoot() {
       requestAnimationFrame(() => g.classList.add('go'));
       window.setTimeout(() => {
         const r = el.getBoundingClientRect();
-        if (r.bottom > 0 && r.top < innerHeight) dust(r.left + r.width / 2, Math.min(r.bottom, innerHeight - 10), { power: 0.9, chunks: 6 });
+        if (r.bottom > 0 && r.top < innerHeight) dustLine(r.left, r.right, Math.min(r.bottom, innerHeight - 10), 1.1);
       }, 420);
       window.setTimeout(() => g.remove(), 1500);
     };

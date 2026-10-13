@@ -87,7 +87,7 @@ export function HeroSceneMount({ heroId }: { heroId: string }) {
       }
       progressRef.current = p;
       hero.style.setProperty('--p', p.toFixed(4));
-      hero.toggleAttribute('data-cleared', p > 0.45);
+      hero.toggleAttribute('data-cleared', p > 0.33);
       handleRef.current?.setProgress(p);
     };
     const onScroll = () => {

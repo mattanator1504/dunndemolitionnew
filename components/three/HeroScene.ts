@@ -2,10 +2,10 @@
 // the pinned hero knocks it out, starting from one strike point right of center, and the
 // page behind shows through the hole as it spreads to the edges.
 // The hero's scroll progress (0..1):
-//   0.00-0.06  the wall stands
-//   0.04-0.70  bricks loosen just ahead of the break, then let go (nearest the strike first),
+//   0.00-0.04  the wall stands
+//   0.03-0.43  bricks loosen just ahead of the break, then let go (nearest the strike first),
 //              blow out toward the camera, tumble and drop out of frame; mortar crumbles to dust
-//   0.70-1.00  the last edge bricks fall away; at 1 the canvas is empty
+//   0.43-0.95  the last bricks keep falling, slowly; by 0.95 the canvas is empty
 // Everything is a function of progress, so scrolling back up rebuilds the wall.
 // The wall is laid out like CSS object-fit: cover over a 1920x1080 reference frame, so the
 // static poster (rendered from this scene at that size) lines up with the live first frame.
@@ -235,7 +235,7 @@ export function createHeroScene(canvas: HTMLCanvasElement, opts: { poster?: bool
         const dy = y - iy;
         const d = Math.hypot(dx, dy);
         const dn = Math.min(1, d / far);
-        t0[i] = 0.05 + 0.55 * Math.pow(dn, 1.05) + (h1 - 0.5) * 0.07;
+        t0[i] = 0.04 + 0.36 * Math.pow(dn, 1.05) + (h1 - 0.5) * 0.06;
         // Near the strike: blown out hard toward the camera. Toward the edges: they mostly drop.
         const kick = (1 - dn) * (1 - dn);
         const out = 1.5 + kick * 9;
@@ -285,8 +285,8 @@ export function createHeroScene(canvas: HTMLCanvasElement, opts: { poster?: bool
     }
   }
 
-  const G = 26; // courses per unit time squared
-  const SPEED = 4; // unit time per unit of progress
+  const G = 22; // courses per unit time squared
+  const SPEED = 3; // unit time per unit of progress (lower = slower fall per scroll)
 
   function place(t: number) {
     for (let i = 0; i < count; i++) {
@@ -333,7 +333,7 @@ export function createHeroScene(canvas: HTMLCanvasElement, opts: { poster?: bool
       dustCol[o] = 0.78;
       dustCol[o + 1] = 0.72;
       dustCol[o + 2] = 0.66;
-      dustCol[o + 3] = a * 0.38 * dustSeed[k * 6 + 5];
+      dustCol[o + 3] = a * 0.38 * dustSeed[k * 6 + 5] * (1 - smoothstep(0.85, 1, t)); // settled before the stage lets go
     }
     (dustGeo.attributes.position as BufferAttribute).needsUpdate = true;
     (dustGeo.attributes.color as BufferAttribute).needsUpdate = true;
@@ -378,7 +378,7 @@ export function createHeroScene(canvas: HTMLCanvasElement, opts: { poster?: bool
     if (!running) return;
     const before = shown;
     // Ease toward the scroll position so a flick of the wheel still reads as motion.
-    shown = Math.abs(target - shown) < 0.0005 ? target : shown + (target - shown) * 0.2;
+    shown = Math.abs(target - shown) < 0.0005 ? target : shown + (target - shown) * 0.12;
     const pmove = Math.abs(pointer.x - pointer.sx) + Math.abs(pointer.y - pointer.sy) > 0.0005;
     pointer.sx += (pointer.x - pointer.sx) * 0.06;
     pointer.sy += (pointer.y - pointer.sy) * 0.06;

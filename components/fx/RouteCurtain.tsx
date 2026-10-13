@@ -2,12 +2,13 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { dust } from './dust';
+import { dustLine, quake } from './dust';
 
 // Page transitions: on an internal link, a wall of eight slabs drops in from above, the
 // route changes behind it, then the wall collapses (bottom-up, tumbling) to reveal the new
-// page with a line of dust along the bottom. Skipped under reduced motion, for new-tab
-// clicks, hash links, and the very first load (the headline must paint first).
+// page with a blast of dust along the bottom and a shake. Skipped under reduced motion,
+// for new-tab clicks and hash links. The very first load gets no wall (the headline must
+// paint first), just the blast along the bottom of the page header once the page has loaded.
 const SLABS = 8;
 
 export function RouteCurtain() {
@@ -15,6 +16,29 @@ export function RouteCurtain() {
   const router = useRouter();
   const pathname = usePathname();
   const pending = useRef(false);
+
+  // First load: once everything has painted, set the page header down with a thump.
+  useEffect(() => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let t = 0;
+    const go = () => {
+      t = window.setTimeout(() => {
+        if (scrollY > innerHeight * 0.5) return;
+        const head = document.querySelector('#hero .hero-stage') ?? document.querySelector('main > section');
+        const r = head?.getBoundingClientRect();
+        const y = r ? Math.min(innerHeight - 10, r.bottom - 6) : innerHeight - 10;
+        if (y < innerHeight * 0.3) return;
+        dustLine(0, innerWidth, y, 1.4);
+        quake('heavy');
+      }, 250);
+    };
+    if (document.readyState === 'complete') go();
+    else addEventListener('load', go, { once: true });
+    return () => {
+      removeEventListener('load', go);
+      clearTimeout(t);
+    };
+  }, []);
 
   // Cover, then navigate.
   useEffect(() => {
@@ -48,7 +72,8 @@ export function RouteCurtain() {
     requestAnimationFrame(() => {
       el.dataset.state = 'fall';
       window.setTimeout(() => {
-        for (let i = 0; i < 5; i++) dust((innerWidth * (i + 0.5)) / 5, innerHeight - 8, { power: 0.8, chunks: 4 });
+        dustLine(0, innerWidth, innerHeight - 8, 1.5);
+        quake('heavy');
       }, 360);
       window.setTimeout(() => {
         el.dataset.state = '';

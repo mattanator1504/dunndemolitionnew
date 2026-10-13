@@ -3,12 +3,14 @@
 import { useEffect, useRef } from 'react';
 import type { BurstOptions } from './dust';
 
-// One fixed, click-through canvas for every dust burst on the site: soft concrete-dust
-// puffs that billow and fade, plus a few chunks of debris thrown out under gravity.
+// One fixed, click-through canvas for every dust burst on the site: concrete-dust clouds
+// that billow, hang and fade (a light and a dark tone, so they read on ink and on paper),
+// chunks of debris thrown out under gravity, and for blasts a shockwave ring and a flash.
 // It only animates while particles are alive, and stays empty under reduced motion.
-type P = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; spin: number; a: number; kind: 0 | 1; tone: number };
+// kind: 0 dust, 1 chunk, 2 shockwave ring, 3 flash
+type P = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; spin: number; a: number; kind: 0 | 1 | 2 | 3; tone: number };
 
-const MAX = 700;
+const MAX = 1600;
 
 export function DustFX() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -32,16 +34,32 @@ export function DustFX() {
     resize();
     addEventListener('resize', resize);
 
-    // A soft round sprite for the dust, drawn once.
-    const sprite = document.createElement('canvas');
-    sprite.width = sprite.height = 64;
-    const sg = sprite.getContext('2d')!;
-    const grad = sg.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, 'rgba(214,208,196,0.55)');
-    grad.addColorStop(0.5, 'rgba(190,184,172,0.22)');
-    grad.addColorStop(1, 'rgba(170,164,152,0)');
-    sg.fillStyle = grad;
-    sg.fillRect(0, 0, 64, 64);
+    // Soft round sprites for the dust, drawn once: pale concrete and a darker grit.
+    const makeSprite = (stops: [number, string][]) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const g = c.getContext('2d')!;
+      const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      for (const [o, col] of stops) grad.addColorStop(o, col);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 64, 64);
+      return c;
+    };
+    const light = makeSprite([
+      [0, 'rgba(222,216,204,0.7)'],
+      [0.5, 'rgba(196,190,178,0.3)'],
+      [1, 'rgba(170,164,152,0)'],
+    ]);
+    const dark = makeSprite([
+      [0, 'rgba(120,112,102,0.6)'],
+      [0.5, 'rgba(110,104,94,0.25)'],
+      [1, 'rgba(100,94,86,0)'],
+    ]);
+    const flash = makeSprite([
+      [0, 'rgba(255,236,190,0.95)'],
+      [0.35, 'rgba(255,184,0,0.45)'],
+      [1, 'rgba(255,184,0,0)'],
+    ]);
 
     const ps: P[] = [];
     let raf = 0;
@@ -50,13 +68,18 @@ export function DustFX() {
     const burst = (x: number, y: number, o: BurstOptions = {}) => {
       const power = o.power ?? 1;
       const lean = o.lean ?? 0;
-      const nDust = Math.round(10 + power * 16);
-      const nChunks = o.chunks ?? Math.round(power * 9);
+      const nDust = Math.round(18 + power * 30);
+      const nChunks = o.chunks ?? Math.round(power * 12);
+      if (o.blast) {
+        ps.push({ x, y, vx: 0, vy: 0, life: 0.28, max: 0.28, size: 200 * power, spin: 0, a: 0, kind: 3, tone: 0 });
+        ps.push({ x, y, vx: 0, vy: 0, life: 0.6, max: 0.6, size: 170 * power, spin: 0, a: 0, kind: 2, tone: 0 });
+        ps.push({ x, y, vx: 0, vy: 0, life: 0.85, max: 0.85, size: 280 * power, spin: 0, a: 0, kind: 2, tone: 1 });
+      }
       for (let i = 0; i < nDust && ps.length < MAX; i++) {
-        const ang = -Math.PI / 2 + lean * 0.6 + (Math.random() - 0.5) * Math.PI * 1.4;
-        const sp = (40 + Math.random() * 160) * power;
-        const max = 0.9 + Math.random() * 0.9 * Math.min(1.6, power);
-        ps.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6, life: max, max, size: (10 + Math.random() * 18) * (0.6 + power * 0.5), spin: 0, a: 0, kind: 0, tone: 0 });
+        const ang = -Math.PI / 2 + lean * 0.6 + (Math.random() - 0.5) * Math.PI * (o.blast ? 2 : 1.4);
+        const sp = (50 + Math.random() * 220) * power;
+        const max = 1.4 + Math.random() * 1.6 * Math.min(2, power);
+        ps.push({ x: x + (Math.random() - 0.5) * 70 * power, y: y + (Math.random() - 0.5) * 16, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.6, life: max, max, size: (14 + Math.random() * 26) * (0.6 + power * 0.55), spin: 0, a: 0, kind: 0, tone: Math.random() });
       }
       for (let i = 0; i < nChunks && ps.length < MAX; i++) {
         const ang = -Math.PI / 2 + lean * 0.7 + (Math.random() - 0.5) * Math.PI * 1.1;
@@ -89,9 +112,24 @@ export function DustFX() {
           p.vy = p.vy * (1 - dt * 3.2) - 14 * dt;
           p.x += p.vx * dt;
           p.y += p.vy * dt;
-          const s = p.size * (1 + (1 - k) * 2.4);
-          ctx.globalAlpha = Math.min(1, k * 1.6) * 0.8;
-          ctx.drawImage(sprite, p.x - s / 2, p.y - s / 2, s, s);
+          const s = p.size * (1 + (1 - k) * 3);
+          ctx.globalAlpha = Math.min(1, k * 1.6) * 0.9;
+          ctx.drawImage(p.tone < 0.4 ? dark : light, p.x - s / 2, p.y - s / 2, s, s);
+        } else if (p.kind === 2) {
+          // Shockwave: a ring that races out and thins as it goes.
+          const t = 1 - k;
+          const r = p.size * (1 - (1 - t) * (1 - t));
+          ctx.globalAlpha = k * (p.tone ? 0.3 : 0.45);
+          ctx.strokeStyle = p.tone ? 'rgba(200,194,182,1)' : 'rgba(232,222,200,1)';
+          ctx.lineWidth = Math.max(1, (p.tone ? 10 : 6) * k);
+          ctx.beginPath();
+          ctx.ellipse(p.x, p.y, r, r * 0.55, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (p.kind === 3) {
+          // Flash: hot, brief, swells as it fades.
+          const s = p.size * (0.6 + (1 - k) * 0.8);
+          ctx.globalAlpha = k * k;
+          ctx.drawImage(flash, p.x - s / 2, p.y - s / 2, s, s);
         } else {
           // Chunks: ballistic, spinning.
           p.vy += 1500 * dt;
